@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>FeedList</title>
+</head>
+<body>
+    <div class="container">
+        <h1>EMONCMS FEEDLIST</h1>
+        <p id="status">Loading&hellip;</p>
+        <table id="feedlist">
+            <thead>
+                <tr><th>Title</th></tr>
+            </thead>
+            <tbody>
+                <template id="feed_row">
+                    <tr><td data-title>name</td></tr>
+                </template>
+            </tbody>
+            <tfoot></tfoot>
+        </table>
+    </div>
+        <script src="mqtt.min.js"></script>
+    <script>
+    var options = {
+        username: 'megni',
+        password: 'megni',
+        port: 8083,
+        ejectUnauthorized: false
+    }
+    var client = mqtt.connect("wss://mqtt.emoncms.org", options)
+    client.subscribe("user/megni/response")
+
+    client.on("message", function (topic, payload) {
+        // console.log(JSON.parse(payload))
+        displayResults(JSON.parse(payload))
+        client.end()
+    })
+
+    client.publish("user/megni/request", '{"path":"/emoncms/feed/list.json"}')
+
+    var $status = document.getElementById("status")
+    var $template = document.getElementById("feed_row").innerHTML
+    var $table = document.querySelector('#feedlist tbody')
+
+    function displayResults(feeds) {
+        $status.innerText = 'found ' + feeds.length
+        $template.innerHTML
+        for (i in feeds) {
+/*​
+        datatype: "1"
+        engine: "5"
+        id: "21"
+        interval: 10
+        name: "solarmodel"
+        processList: ""
+        public: "1"
+        size: "15262352"
+        start_time: 1456790240
+        tag: "node abc"
+        time: 1539163669
+        unit: "kWh"
+        userid: "1"
+        value: 23
+*/
+            $row = document.createElement('div')
+            $row.innerHTML = $template
+            //$row.querySelector('[data-title]').innerText = feeds[i].name
+            console.log($row)
+            $table.append($row)
+        }
+    }
+    </script>
+</body>
+</html>
