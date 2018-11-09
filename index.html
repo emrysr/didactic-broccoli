@@ -45,8 +45,12 @@
                     </div>
                 </div>
                 <div class="column">
-                    <button id="connect" class="button is-success">CONNECT</button>
-                    <button id="disconnect" type="button" class="button is-danger">DISCONNECT</button>
+                    <button id="connect" class="button is-success disabled">CONNECT</button>
+                    <button id="disconnect" type="button" class="button is-danger" disabled>DISCONNECT</button>
+                    <button id="unsubscribe" type="button" class="button is-info" disabled>Unsubscribe</button>
+                    <button id="subscribe" type="button" class="button is-info" disabled>Subscribe</button>
+                    <button id="startPublishing" type="button" class="button is-primary" disabled>Start Publishing</button>
+                    <button id="stopPublishing" type="button" class="button is-primary" disabled>Stop Publishing</button>
                 </div>
             </form>
             <div id="status"></div>
@@ -90,24 +94,55 @@
     <script>
         (function(){
             // ----------------------------------------------------------------
-            // INIT
+            // VARIABLES
             var CLIENT = null // stores reference to the connected mqtt client
-            var INTERVAL = null // stores reference to the looping interval that calls for more data
-            var DELAY = 5000 // milliseconds between remote loads
+            var INTERVAL = null // used to loop publishing to /request at REFESH_WAIT interval
+            var REFESH_WAIT = 5000 // interval delay milliseconds between remote loads
+            var TIMEOUT = null // used to timeout loading data - if local emoncms not publishing to /response
+            var LOADING_WAIT = 10000 // used to timeout loading data if local emoncms not publishing to /response
             var CLIENT_ID = 'mqttjs_' + Math.random().toString(16).substr(2, 8)
-            connectToBroker()
+            // EVENTS
+            var connect = new CustomEvent('connect')
+            var connected = new CustomEvent('connected')
+            // var responseReceived = new CustomEvent('responseReceived')
+            // var subscribed = new CustomEvent('subscribed')
+            var subscribe = new CustomEvent('subscribe')
+            var unsubscribe = new CustomEvent('unsubscribe')
+            // var unsubscribed = new CustomEvent('unsubscribed')
+            var disconnect = new CustomEvent('disconnect')
+            var disconnected = new CustomEvent('disconnected')
+            // var responseTimedOut = new CustomEvent('responseTimedOut')
+            var notConnected = new CustomEvent('notConnected')
+            var startPublishing = new CustomEvent('startPublishing')
+            var stopPublishing = new CustomEvent('stopPublishing')
 
             // ----------------------------------------------------------------
             // EVENTS LISTENERS
+            // # DOM events prevent default action before triggering the next event
+            select('#login').addEventListener('submit',           onSubmit)
+            select('#disconnect').addEventListener('click',       onCancel)
+            select('#unsubscribe').addEventListener('click',      onUnsubscribe)
+            select('#subscribe').addEventListener('click',        onSubscribe)
+            select('#startPublishing').addEventListener('click',  onStartPublishing)
+            select('#stopPublishing').addEventListener('click',   onStopPublishing)
 
-            select('#login').addEventListener('submit', onSubmit)
-            select('#disconnect').addEventListener('click', onCancel)
+            document.addEventListener('connect',          connectToBroker)
+            document.addEventListener('connected',        connectedToBroker)
+            document.addEventListener('subscribe',        subscribeToTopic)
+            document.addEventListener('subscribed',       subscribeConfirmed)
+            document.addEventListener('startPublishing',  startPublishingToBroker)
+            document.addEventListener('stopPublishing',   stopPublishingToBroker)
+            document.addEventListener('responseReceived', displayResults)
+            document.addEventListener('responseTimedOut', subscribeTimeoutExceeded)
+            document.addEventListener('unsubscribe',      unsubscribeFromTopic)
+            document.addEventListener('unsubscribed',     unsubscribeConfirmed)
+            document.addEventListener('disconnect',       disconnectFromBroker)
+            document.addEventListener('disconnected',     disconnectedFromBroker)
+            document.addEventListener('notConnected',     notConnectedToBroker)
 
-            document.addEventListener('connect',      connectToBroker)
-            document.addEventListener('connected',    connectedToBroker)
-            document.addEventListener('received',     displayResults)
-            document.addEventListener('disconnect',   disconnectFromBroker)
-            document.addEventListener('disconnected', disconnectedFromBroker);
+            // ----------------------------------------------------------------
+            // init 
+            document.dispatchEvent(connect)
 
             // ----------------------------------------------------------------
             // MQTT EVENT FUNCITONS
@@ -123,18 +158,14 @@
                 // fake loader!! soz
                 fakeLoader()
 
-                // CUSTOM EVENTS
-                var connected = new CustomEvent('connected')
-                var disconnected = new CustomEvent('disconnected')
-
-                var options = {
+                var connak_options = {
                     username: user.username,
                     password: user.password,
                     port: 8083,
                     ejectUnauthorized: false,
                     clientId: CLIENT_ID,
                     will: {
-                        topic: 'user/' + getUser().username + '/request',
+                        topic: getSubTopic(),
                         payload: 'DISCONNECTED CLIENT ' + CLIENT_ID + '--------',
                         qos: 0,
                         retain: false
@@ -142,10 +173,13 @@
                     connectTimeout: 4000,
                     reconnectPeriod: 2000
                 }
-                console.log('options', options)
-                var client = mqtt.connect("wss://mqtt.emoncms.org", options)
-                client.subscribe('user/' + options.username + '/response/' + CLIENT_ID)
-                // trigger custom event when connect event triggered
+                // ------------------------------------------------------------
+                // CONNECT
+                var client = mqtt.connect("wss://mqtt.emoncms.org", connak_options)
+                console.log('Connecting with: ', connak_options)
+
+                // ------------------------------------------------------------
+                // TEST BROKER RETURN CODE  ("0" == "OK")
                 client.on('connect', function (connack) {
                     if (connack.returnCode === 0) {
                         document.dispatchEvent(connected)
@@ -153,106 +187,140 @@
                         document.dispatchEvent(disconnected)
                     }
                 })
+
+                // ------------------------------------------------------------
+                // MQTT CLIENT CALLBACKS
+
                 // trigger custom event when message event triggered
                 client.on('message', function (topic, payload) {
                     //​ EXAMPLE PAYLOAD ARRAY ITEM: {datatype:"1",engine:"5",id:"21",interval:10,name:"solarmodel",processList:"",public:"1",size:"15262352",start_time:1456790240,tag:"node abc",time:1539163669,unit:"kWh",userid:"1",value:23}
-                    var received = new CustomEvent('received', {detail: {topic: topic, payload: payload}})
-                    document.dispatchEvent(received)
+                    var responseReceived = new CustomEvent('responseReceived', {detail: {topic: topic, payload: payload}})
+                    document.dispatchEvent(responseReceived)
                 })
-                // all the client callbacks:
-                client.on('error', function () { console.log('Error'); disconnectFromBroker() })
-                client.on('end', function () { console.log('disconnecting callback finished') })
-                client.on('close', function () { console.log('disconnected'); })
-                client.on('offline', function () { console.log('lost connection!') })
-                client.on('reconnect', function () { console.log('connection regained'); console.count() })
-                client.on('packetsend', function (packet) { console.log('packet sent:', packet.cmd) })
-                client.on('packetreceive', function (packet) { console.log('packet received:', packet.cmd) })
-                // MQTT PACKET TYPES: Connect,Connack,Subscribe,Suback,Unsubscribe,Unsuback,Publish,Puback,Pubrec,Pubrel,Pubcomp,Pingreq,Pingresp
+                client.on('error', function () { 
+                    document.dispatchEvent(disconnect)
+                })
 
-                // indicate connection status
-                select('#connect').disabled = true
+                // ------------------------------------------------------------
+                // DEBUG - all the other documented mqtt.js client callbacks:
+
+                client.on('close',          function ()       { console.log('disconnecting...'); })
+                client.on('end',            function ()       { console.log('Broker confimred: ' + CLIENT_ID + ' disconnected') })
+                client.on('offline',        function ()       { console.log('lost connection!') })
+                client.on('reconnect',      function ()       { console.log('connection regained'); console.count() })
+                client.on('packetsend',     function (packet) { console.log('packet sent:', packet.cmd) })
+                client.on('packetreceive',  function (packet) { console.log('packet received:', packet.cmd) })
+                // POSSIBLE MQTT {packet}['cmd'] values: Connect,Connack,Subscribe,Suback,Unsubscribe,Unsuback,Publish,Puback,Pubrec,Pubrel,Pubcomp,Pingreq,Pingresp
+
+                // ------------------------------------------------------------
+                // CONNECTION STATUS
                 select('#disconnect').disabled = false
+                select('#connect').disabled = true
+                select('#unsubscribe').disabled = true
+                select('#subscribe').disabled = true
+                select('#startPublishing').disabled = true
+                select('#stopPublishing').disabled = true
                 fakeLoader()
 
                 // set global variable to allow connect & disconnect buttons to access the client
                 CLIENT = client
             }
             /** trigger broker end() and wait for response before updating the screen */
-            function disconnectFromBroker(err) {
-                if (!CLIENT) return void 0
-                var dontWaitForAcknowledgement = !CLIENT.connected || true
-                CLIENT.end(dontWaitForAcknowledgement, function(){
-                    // wait before broker acknowlegement before triggering disconnected
-                    document.dispatchEvent(new Event('disconnected'))
-                })
-                console.log(CLIENT_ID + ' disconnected')
+            function disconnectFromBroker(event) {
+                // stop the loading timeout
+                clearTimeout(TIMEOUT)
+                // unable to disconnect if not already connected
+                if (!CLIENT || !CLIENT.hasOwnProperty('connected') || CLIENT.connected === false) {
+                    document.dispatchEvent(notConnected)
+                } else {
+                    document.dispatchEvent(stopPublishing)
+                    document.dispatchEvent(unsubscribe)
+                    // pass on disconnect message (if available) to "disconnected" event
+                    var disconnected = new CustomEvent('disconnected', {detail: event.detail})
+                    // dont wait for acknowledgement message from broker before displaying disconnected message
+                    var forceDisconnect = !CLIENT.connected === true
+                    if (forceDisconnect) {
+                        // don't wait for broker to respond
+                        CLIENT.end()
+                        document.dispatchEvent(disconnected)
+                    } else {
+                        // wait for broker to respond
+                        CLIENT.end(false, function(){ 
+                            document.dispatchEvent(disconnected)
+                        })
+                    }
+                }
             }
             /** called once server is connected */
-            function connectedToBroker() {
+            function connectedToBroker() {         
+                // ------------------------------------------------------------
                 select('#loader').value = 100
-                // request data from local mqtt broker
-                sendApiCommandToBroker()
-                // request more data from local mqtt broker every DELAY milliseconds
-                INTERVAL = setInterval(function() {
-                    sendApiCommandToBroker()
-                }, DELAY)
+                // SUBSCRIBE - listen for responses from mqtt broker
+                document.dispatchEvent(subscribe)
+                // PUBLISH - request more data from local mqtt broker every REFESH_WAIT milliseconds
+                document.dispatchEvent(startPublishing)
+            }
+            /** called once broker confirms subscription "SUBACK" packet */
+            function subscribeConfirmed(event) {
+                select('#unsubscribe').disabled = false
+                console.log('Subscribed to: ' + event.detail)
+            }
+            /** called once broker confirms unsubscription "UNSUBACK" packet */
+            function unsubscribeConfirmed(event) {
+                select('#unsubscribe').disabled = true
+                console.log('Unsubscribed from: ' + event.detail)
             }
             /** called once disconnection is confirmed */
-             function disconnectedFromBroker() {
+            function disconnectedFromBroker(event) {
                 select('#loader').value = 0
                 select('#disconnect').disabled = true
                 select('#connect').disabled = false
+                var message = event.detail || 'disconnected'
+                select('#status').innerText = message
+            }
+            function subscribeToTopic(event) {
+                CLIENT.subscribe(getSubTopic(), false, function (err, granted) {
+                    if (err) console.error('subscribe error', err)
+                    topic = granted[0].topic
+                    document.dispatchEvent(new CustomEvent('subscribed', {detail: topic}))
+                })
+            }
+            // unsubscribe from subTopic
+            function unsubscribeFromTopic(event) {
+                // stop looping publish
+                document.dispatchEvent(stopPublishing)
+
+                CLIENT.unsubscribe(getSubTopic(), function(error) {
+                    var message = getSubTopic()
+                    if(error) {
+                        message = error.message
+                    }
+                    var unsubscribed = new CustomEvent('unsubscribed', {detail: message})
+                    document.dispatchEvent(unsubscribed)
+                })
+            }
+            /** start the looping mqtt publish to topic user/request */
+            function startPublishingToBroker(event) {
+                // request data from local mqtt broker
+                sendApiCommandToBroker()
+
+                INTERVAL = setInterval(function() {
+                    sendApiCommandToBroker()
+                }, REFESH_WAIT)
+            }
+            /** stop the looping mqtt publish to topic user/request */
+            function stopPublishingToBroker(event) {
+                console.log('clear interval')
                 clearInterval(INTERVAL)
-                select('#status').innerText = 'disconnected'
-            }
-
-            // ----------------------------------------------------------------
-            // MQTT FUNCTIONS
-
-            /** Called once connected and at set intervals */
-            function sendApiCommandToBroker() {
-                var topic = 'user/' + getUser().username + '/request'
-                var message = JSON.stringify({clientId: CLIENT_ID, path: '/emoncms/feed/list.json'})
-                CLIENT.publish(topic, message)
-                select('#status').innerText = 'loading...'
-                select('#loader').value = 0
-            }
-
-            // ----------------------------------------------------------------
-            // FORM EVENTS
-
-            /** called when connect button pressed */
-            function onSubmit(event) {
-                event.preventDefault()
-                connectToBroker()
-            }
-            /** called when disconnect button pressed */
-            function onCancel(event) {
-                event.preventDefault()
-                disconnectFromBroker()
-            }
-
-
-            // ----------------------------------------------------------------
-            // FUNCTIONS
-            /**
-             * return undefined if one or both inputs ar empty
-             * @return {object} user obj with username & password properties
-             */
-             function getUser() {
-                var username = select('#input_username').value
-                var password = select('#input_password').value
-                var user = {
-                    username : username,
-                    password : password
-                }
-                if (username.length > 0 && password.length > 0) return user
             }
             /**
              * format json response as list on screen
              * @param {CustomEvent} event event.detail.payload == json data as text
              */
             function displayResults(event) {
+                // stop the "no data" error from displaying
+                clearTimeout(TIMEOUT)
+                
                 var feeds = JSON.parse(event.detail.payload)
                 if (!feeds) throw 'No feed data'
                 
@@ -278,17 +346,94 @@
                 select('#status').innerText = 'found ' + feeds.length
                 select('#loader').value = 100
             }
-            function fakeLoader(){
-                var loader = select('#loader')
-                loader.classList.remove('is-invisible')
-                loader.value = Math.floor(Math.random() * 20) + 0
-                setTimeout(function() {
-                    loader.value = Math.floor(Math.random() * 70) + 30
-                }, 500)
+            /**
+             * error. no data being posted to /response topic of mqtt broker
+             */
+            function subscribeTimeoutExceeded(event) {
+                var disconnect = new CustomEvent('disconnect', {detail: event.detail})
+                document.dispatchEvent(disconnect)
+            }
+            /**
+             * error. not connected to broker
+             */
+            function notConnectedToBroker() { 
+                console.log('event: not connected!')
             }
 
             // ----------------------------------------------------------------
-            // UTILITIES
+            // MQTT FUNCTIONS
+
+            /** Called once connected and at set intervals */
+            function sendApiCommandToBroker() {
+                if (!CLIENT.connected) document.dispatchEvent(disconnect)
+                var message = JSON.stringify({clientId: CLIENT_ID, path: '/emoncms/feed/list.json'})
+                CLIENT.publish(getPubTopic(), message)
+                select('#status').innerText = 'loading...'
+                select('#loader').value = 0
+                // test for no data after 8 seconds
+                TIMEOUT = setTimeout(function() {
+                    var responseTimedOut = new CustomEvent('responseTimedOut', {detail: 'No data available. Ensure you\'ve enabled this feature on your emoncms.org account.'})
+                    document.dispatchEvent(responseTimedOut)
+                }, LOADING_WAIT)
+            }
+
+            // ----------------------------------------------------------------
+            // FORM EVENTS
+
+            /** called when connect button pressed */
+            function onSubmit(event) {
+                event.preventDefault()
+                document.dispatchEvent(connect)
+            }
+            /** called when disconnect button pressed */
+            function onCancel(event) {
+                event.preventDefault()
+                document.dispatchEvent(disconnect)
+            }
+            /** called when unsubscribe button pressed */
+            function onUnsubscribe(event) {
+                event.preventDefault()
+                document.dispatchEvent(unsubscribe)
+            }
+            /** called when subscribe button pressed */
+            function onSubscribe(event) {
+                event.preventDefault()
+                document.dispatchEvent(subscribe)
+            }
+            /** called when unsubscribe button pressed */
+            function onStopPublishing(event) {
+                event.preventDefault()
+                document.dispatchEvent(stopPublishing)
+            }
+            /** called when subscribe button pressed */
+            function onStartPublishing(event) {
+                event.preventDefault()
+                document.dispatchEvent(startPublishing)
+            }
+
+            // ----------------------------------------------------------------
+            // FUNCTIONS
+            /**
+             * return undefined if one or both inputs ar empty
+             * @return {object} user obj with username & password properties
+             */
+             function getUser() {
+                var username = select('#input_username').value
+                var password = select('#input_password').value
+                var user = {
+                    username : username,
+                    password : password
+                }
+                if (username.length > 0 && password.length > 0) return user
+            }
+            function getSubTopic() {
+                var user = getUser()
+                return 'user/' + user.username + '/response/' + CLIENT_ID
+            }
+            function getPubTopic() {
+                var user = getUser()
+                return 'user/' + user.username + '/request'
+            }
             /**
              * select element from DOM for manipulation
              * notify but not halt when element is not found
@@ -302,10 +447,16 @@
                 } catch (e) {
                     console.log('"' + query + '" not found in DOM')
                 }
-                
                 return elem || document.createElement('div')
             }
-
+            function fakeLoader(){
+                var loader = select('#loader')
+                loader.classList.remove('is-invisible')
+                loader.value = Math.floor(Math.random() * 20) + 0
+                setTimeout(function() {
+                    loader.value = Math.floor(Math.random() * 70) + 30
+                }, 500)
+            }
         })();
 
     </script>
