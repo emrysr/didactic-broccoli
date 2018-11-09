@@ -6,75 +6,110 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>FeedList</title>
     <link rel="stylesheet" href="bulma.css">
+    <style>
+    #header, #show_hide {
+        transition: all .4s ease-in-out
+    }
+    .short{
+        height: 0;
+        padding-top: 2rem;
+        padding-bottom: 0;
+    }
+    .short #show_hide{
+        position: absolute;
+        top: -1.9rem;
+        left:-3rem;
+    }
+    </style>
 </head>
 <body>
-    <section class="section has-background-white-bis">
+    <section id="header" class="section has-background-white-bis is-clipped" onclick="if(event.target.id == 'show_hide') { this.classList.toggle('short'); ">
         <div class="container">
             <h1 class="title">EmonCMS Feed List</h1>
             <p class="subtitle">
-                Emoncms is a powerful open-source web-app for processing, logging and visualising energy, temperature and other environmental data. Pre installed on all <a href="https://openenergymonitor.com/" target="_blank">emonPis</a>.
+                Emoncms is a powerful open-source web-app for processing, logging and visualising energy, temperature and other environmental data.
             </p>
-            <p>Enter your username and password to read the latest values from your emonPi.</p>
-            <form id="login" class="level columns">
-                <div class="column is-one-quarter">
-                    <div class="field is-horizontal">
-                        <div class="field-label is-normal">
-                            <label class="label">Username</label>
-                        </div>
-                        <div class="field-body">
-                            <div class="field">
-                                <div class="control is-expanded">
-                                    <input id="input_username" class="input" type="text" placeholder="Username" required>
+            <div id="instructions" class="is-hidden">
+                <p>Enter your username and password to read the latest values from your emonPi.</p>
+                <form id="login" class="level columns">
+                    <div class="column is-one-quarter">
+                        <div class="field is-horizontal">
+                            <div class="field-label is-normal">
+                                <label class="label">Username</label>
+                            </div>
+                            <div class="field-body">
+                                <div class="field">
+                                    <div class="control is-expanded">
+                                        <input id="input_username" class="input" type="text" placeholder="Username" required>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="column is-one-quarter">
-                    <div class="field is-horizontal">
-                        <div class="field-label is-normal">
-                            <label class="label">Password</label>
-                        </div>
-                        <div class="field-body">
-                            <div class="field">
-                                <div class="control is-expanded">
-                                    <input id="input_password" class="input" type="password" placeholder="Password" required>
+                    <div class="column is-one-quarter">
+                        <div class="field is-horizontal">
+                            <div class="field-label is-normal">
+                                <label class="label">Password</label>
+                            </div>
+                            <div class="field-body">
+                                <div class="field">
+                                    <div class="control is-expanded">
+                                        <input id="input_password" class="input" type="password" placeholder="Password" required>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                    <div class="column">
+                        <div class="field is-grouped">
+                            <p class="control">
+                                <button id="connect" class="button is-primary is-hidden" disabled>CONNECT</button>
+                                <button id="disconnect" type="button" class="button is-primary" disabled>DISCONNECT</button>
+                            </p>
+                            <!-- <p class="control">
+                                <button id="startPublishing" type="button" class="button is-link is-hidden" disabled>LIVE</button>
+                                <button id="stopPublishing" type="button" class="button is-link is-hidden" disabled>PAUSE</button>
+                            </p> -->
+                            <p class="control is-hidden">
+                                <button id="unsubscribe" type="button" class="button is-info is-hidden" disabled>UNSUBSCRIBE</button>
+                                <button id="subscribe" type="button" class="button is-info is-focused is-hidden" disabled>SUBSCRIBE</button>
+                            </p>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="columns is-mobile">
                 <div class="column">
-                    <button id="connect" class="button is-success disabled">CONNECT</button>
-                    <button id="disconnect" type="button" class="button is-danger" disabled>DISCONNECT</button>
-                    <button id="unsubscribe" type="button" class="button is-info" disabled>Unsubscribe</button>
-                    <button id="subscribe" type="button" class="button is-info" disabled>Subscribe</button>
-                    <button id="startPublishing" type="button" class="button is-primary" disabled>Start Publishing</button>
-                    <button id="stopPublishing" type="button" class="button is-primary" disabled>Stop Publishing</button>
+                    <div id="status" class="has-text-grey-light"></div>
+                    <progress id="loader" class="progress is-small is-success is-invisible" value="0" max="100"></progress>
                 </div>
-            </form>
-            <div id="status"></div>
-            <progress id="loader" class="progress is-small is-success is-invisible" value="0" max="100"></progress>
+                <div class="column is-narrow">
+                    <button id="startPublishing" type="button" title="Get live data" class="button is-link is-hidden is-large" disabled>&#x23ef;</button>
+                    <button id="stopPublishing" type="button" title="Pause live feed" class="button is-link is-hidden is-large" disabled>&#x23f8;</button>
+                </div>
+            </div>
+            <button id="show_hide" class="button is-size-7">show/hide</button>
         </div>
     </section>
 
     <section class="section">
         <div class="container">
             <table id="feedlist" class="table is-bordered is-striped is-narrow is-fullwidth is-invisible">
+                <caption id="caption" class="has-text-right has-text-grey-light"></caption>
                 <thead>
                     <tr>
-                        <th>id</th>
-                        <th>name</th>
-                        <th class="is-hidden-touch">tag</th>
-                        <th>time</th>
-                        <th class="is-hidden-mobile">value</th>
+                        <th class="is-hidden-mobile">ID</th>
+                        <th>NAME</th>
+                        <th class="is-hidden-touch">TAG</th>
+                        <th>TIME</th>
+                        <th class="is-hidden-mobile">VALUE</th>
                     </tr>
                 </thead>
                 <tbody>
                 </tbody>
                 <template id="feed_row">
                     <tr>
-                        <td data-id></td>
+                        <td class="is-hidden-mobile" data-id></td>
                         <td data-name></td>
                         <td class="is-hidden-touch" data-tag></td>
                         <td data-time></td>
@@ -99,7 +134,7 @@
             var INTERVAL = null // used to loop publishing to /request at REFESH_WAIT interval
             var REFESH_WAIT = 5000 // interval delay milliseconds between remote loads
             var TIMEOUT = null // used to timeout loading data - if local emoncms not publishing to /response
-            var LOADING_WAIT = 10000 // used to timeout loading data if local emoncms not publishing to /response
+            var LOADING_WAIT = 5000 // used to timeout loading data if local emoncms not publishing to /response
             var CLIENT_ID = 'mqttjs_' + Math.random().toString(16).substr(2, 8)
             // EVENTS
             var connect = new CustomEvent('connect')
@@ -126,6 +161,9 @@
             select('#startPublishing').addEventListener('click',  onStartPublishing)
             select('#stopPublishing').addEventListener('click',   onStopPublishing)
 
+            select('.startPublishing').addEventListener('click',  onStartPublishing)
+            select('.stopPublishing').addEventListener('click',   onStopPublishing)
+
             document.addEventListener('connect',          connectToBroker)
             document.addEventListener('connected',        connectedToBroker)
             document.addEventListener('subscribe',        subscribeToTopic)
@@ -141,8 +179,10 @@
             document.addEventListener('notConnected',     notConnectedToBroker)
 
             // ----------------------------------------------------------------
-            // init 
-            document.dispatchEvent(connect)
+            // wait for browser to populate autofill fields before attempting connection
+            setTimeout(function(){
+                document.dispatchEvent(connect)
+            }, 500)
 
             // ----------------------------------------------------------------
             // MQTT EVENT FUNCITONS
@@ -176,7 +216,7 @@
                 // ------------------------------------------------------------
                 // CONNECT
                 var client = mqtt.connect("wss://mqtt.emoncms.org", connak_options)
-                console.log('Connecting with: ', connak_options)
+                log('Connecting with: ', connak_options)
 
                 // ------------------------------------------------------------
                 // TEST BROKER RETURN CODE  ("0" == "OK")
@@ -204,26 +244,38 @@
                 // ------------------------------------------------------------
                 // DEBUG - all the other documented mqtt.js client callbacks:
 
-                client.on('close',          function ()       { console.log('disconnecting...'); })
-                client.on('end',            function ()       { console.log('Broker confimred: ' + CLIENT_ID + ' disconnected') })
-                client.on('offline',        function ()       { console.log('lost connection!') })
-                client.on('reconnect',      function ()       { console.log('connection regained'); console.count() })
-                client.on('packetsend',     function (packet) { console.log('packet sent:', packet.cmd) })
-                client.on('packetreceive',  function (packet) { console.log('packet received:', packet.cmd) })
+                client.on('close',          function ()       { log('---disconnecting...') })
+                client.on('end',            function ()       { log('---disconnect response: ' + CLIENT_ID + ' disconnected') })
+                client.on('offline',        function ()       { log('---lost connection!') })
+                client.on('reconnect',      function ()       { log('---connection regained') })
+                client.on('packetsend',     function (packet) { log('---packet sent:', packet.cmd) })
+                client.on('packetreceive',  function (packet) { log('---packet received:', packet.cmd) })
                 // POSSIBLE MQTT {packet}['cmd'] values: Connect,Connack,Subscribe,Suback,Unsubscribe,Unsuback,Publish,Puback,Pubrec,Pubrel,Pubcomp,Pingreq,Pingresp
 
                 // ------------------------------------------------------------
-                // CONNECTION STATUS
-                select('#disconnect').disabled = false
-                select('#connect').disabled = true
-                select('#unsubscribe').disabled = true
-                select('#subscribe').disabled = true
-                select('#startPublishing').disabled = true
-                select('#stopPublishing').disabled = true
+                // INITIAL CONNECTION STATUS
+                show('#disconnect')
+                hide('#connect')
+                hide('#unsubscribe')
+                hide('#subscribe')
+                hide('#startPublishing')
+                hide('#stopPublishing')
+                
+                // @todo: make a loader that reads from broker packet responses
                 fakeLoader()
 
                 // set global variable to allow connect & disconnect buttons to access the client
                 CLIENT = client
+            }
+            function hide(selector) {
+                var elem = select(selector)
+                elem.disabled = true
+                elem.classList.add('is-hidden')
+            }
+            function show(selector) {
+                var elem = select(selector)
+                elem.disabled = false
+                elem.classList.remove('is-hidden')
             }
             /** trigger broker end() and wait for response before updating the screen */
             function disconnectFromBroker(event) {
@@ -253,54 +305,73 @@
             }
             /** called once server is connected */
             function connectedToBroker() {         
-                // ------------------------------------------------------------
+                show('#disconnect')
+                hide('#connect')
+                hide('#instructions')
+                select('#caption').innerText = 'Local feed list for ' + getUser().username
                 select('#loader').value = 100
                 // SUBSCRIBE - listen for responses from mqtt broker
                 document.dispatchEvent(subscribe)
+
+                // ------------------------------------------------------------
                 // PUBLISH - request more data from local mqtt broker every REFESH_WAIT milliseconds
-                document.dispatchEvent(startPublishing)
+                // user must select "auto reload"
+                // document.dispatchEvent(startPublishing)
+                
+                // Send a single request
+                sendApiCommandToBroker()
+                show('#startPublishing')
             }
             /** called once broker confirms subscription "SUBACK" packet */
             function subscribeConfirmed(event) {
-                select('#unsubscribe').disabled = false
-                console.log('Subscribed to: ' + event.detail)
+                show('#unsubscribe')
+                hide('#subscribe')
+                log('Subscribed to: ' + event.detail)
             }
             /** called once broker confirms unsubscription "UNSUBACK" packet */
             function unsubscribeConfirmed(event) {
-                select('#unsubscribe').disabled = true
-                console.log('Unsubscribed from: ' + event.detail)
+                hide('#unsubscribe')
+                show('#subscribe')
+                log('Unsubscribed from: ' + event.detail)
             }
             /** called once disconnection is confirmed */
             function disconnectedFromBroker(event) {
                 select('#loader').value = 0
-                select('#disconnect').disabled = true
-                select('#connect').disabled = false
+                show('#connect')
+                hide('#disconnect')
+                hide('#unsubscribe')
+                hide('#subscribe')
+                hide('#startPublishing')
+                hide('#stopPublishing')
+                show('#instructions')
                 var message = event.detail || 'disconnected'
                 select('#status').innerText = message
             }
             function subscribeToTopic(event) {
                 CLIENT.subscribe(getSubTopic(), false, function (err, granted) {
-                    if (err) console.error('subscribe error', err)
-                    topic = granted[0].topic
-                    document.dispatchEvent(new CustomEvent('subscribed', {detail: topic}))
+                    if (err) {
+                        log(err)
+                    } else if (granted) {
+                        topic = granted[0].topic
+                        document.dispatchEvent(new CustomEvent('subscribed', {detail: topic}))
+                    }
                 })
             }
             // unsubscribe from subTopic
             function unsubscribeFromTopic(event) {
-                // stop looping publish
-                document.dispatchEvent(stopPublishing)
-
-                CLIENT.unsubscribe(getSubTopic(), function(error) {
-                    var message = getSubTopic()
+                var topic = getSubTopic()
+                CLIENT.unsubscribe(topic, function(error) {
                     if(error) {
-                        message = error.message
+                        topic = error.message
                     }
-                    var unsubscribed = new CustomEvent('unsubscribed', {detail: message})
+                    var unsubscribed = new CustomEvent('unsubscribed', {detail: topic})
                     document.dispatchEvent(unsubscribed)
                 })
             }
             /** start the looping mqtt publish to topic user/request */
             function startPublishingToBroker(event) {
+                show('#stopPublishing')
+                hide('#startPublishing')
                 // request data from local mqtt broker
                 sendApiCommandToBroker()
 
@@ -310,7 +381,8 @@
             }
             /** stop the looping mqtt publish to topic user/request */
             function stopPublishingToBroker(event) {
-                console.log('clear interval')
+                hide('#stopPublishing')
+                show('#startPublishing')
                 clearInterval(INTERVAL)
             }
             /**
@@ -357,7 +429,7 @@
              * error. not connected to broker
              */
             function notConnectedToBroker() { 
-                console.log('event: not connected!')
+                log('event: not connected!')
             }
 
             // ----------------------------------------------------------------
@@ -382,31 +454,37 @@
 
             /** called when connect button pressed */
             function onSubmit(event) {
+                explicitOriginalTarget.event.target.blur()
                 event.preventDefault()
                 document.dispatchEvent(connect)
             }
             /** called when disconnect button pressed */
             function onCancel(event) {
+                event.target.blur()
                 event.preventDefault()
                 document.dispatchEvent(disconnect)
             }
             /** called when unsubscribe button pressed */
             function onUnsubscribe(event) {
+                event.target.blur()
                 event.preventDefault()
                 document.dispatchEvent(unsubscribe)
             }
             /** called when subscribe button pressed */
             function onSubscribe(event) {
+                event.target.blur()
                 event.preventDefault()
                 document.dispatchEvent(subscribe)
             }
             /** called when unsubscribe button pressed */
             function onStopPublishing(event) {
+                event.target.blur()
                 event.preventDefault()
                 document.dispatchEvent(stopPublishing)
             }
             /** called when subscribe button pressed */
             function onStartPublishing(event) {
+                event.target.blur()
                 event.preventDefault()
                 document.dispatchEvent(startPublishing)
             }
@@ -445,7 +523,7 @@
                 try {
                     if (!elem) throw ReferenceError(query + ' not found in DOM')
                 } catch (e) {
-                    console.log('"' + query + '" not found in DOM')
+                    log('"' + query + '" not found in DOM')
                 }
                 return elem || document.createElement('div')
             }
@@ -456,6 +534,9 @@
                 setTimeout(function() {
                     loader.value = Math.floor(Math.random() * 70) + 30
                 }, 500)
+            }
+            function log(message) {
+                //console.log(message)
             }
         })();
 
