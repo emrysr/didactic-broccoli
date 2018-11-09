@@ -5,73 +5,309 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>FeedList</title>
+    <link rel="stylesheet" href="bulma.css">
 </head>
 <body>
-    <div class="container">
-        <h1>EMONCMS FEEDLIST</h1>
-        <p id="status">Loading&hellip;</p>
-        <table id="feedlist">
-            <thead>
-                <tr><th>Title</th></tr>
-            </thead>
-            <tbody>
+    <section class="section has-background-white-bis">
+        <div class="container">
+            <h1 class="title">EmonCMS Feed List</h1>
+            <p class="subtitle">
+                Emoncms is a powerful open-source web-app for processing, logging and visualising energy, temperature and other environmental data. Pre installed on all <a href="https://openenergymonitor.com/" target="_blank">emonPis</a>.
+            </p>
+            <p>Enter your username and password to read the latest values from your emonPi.</p>
+            <form id="login" class="level columns">
+                <div class="column is-one-quarter">
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal">
+                            <label class="label">Username</label>
+                        </div>
+                        <div class="field-body">
+                            <div class="field">
+                                <div class="control is-expanded">
+                                    <input id="input_username" class="input" type="text" placeholder="Username" required>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-one-quarter">
+                    <div class="field is-horizontal">
+                        <div class="field-label is-normal">
+                            <label class="label">Password</label>
+                        </div>
+                        <div class="field-body">
+                            <div class="field">
+                                <div class="control is-expanded">
+                                    <input id="input_password" class="input" type="password" placeholder="Password" required>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="column">
+                    <button id="connect" class="button is-success">CONNECT</button>
+                    <button id="disconnect" type="button" class="button is-danger">DISCONNECT</button>
+                </div>
+            </form>
+            <div id="status"></div>
+            <progress id="loader" class="progress is-small is-success is-invisible" value="0" max="100"></progress>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="container">
+            <table id="feedlist" class="table is-bordered is-striped is-narrow is-fullwidth is-invisible">
+                <thead>
+                    <tr>
+                        <th>id</th>
+                        <th>name</th>
+                        <th class="is-hidden-touch">tag</th>
+                        <th>time</th>
+                        <th class="is-hidden-mobile">value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
                 <template id="feed_row">
-                    <tr><td data-title>name</td></tr>
+                    <tr>
+                        <td data-id></td>
+                        <td data-name></td>
+                        <td class="is-hidden-touch" data-tag></td>
+                        <td data-time></td>
+                        <td class="is-hidden-mobile" data-value></td>
+                    </tr>
                 </template>
-            </tbody>
-            <tfoot></tfoot>
-        </table>
-    </div>
-        <script src="mqtt.min.js"></script>
+                <tfoot></tfoot>
+            </table>
+        </div>
+    </section>
+
+
+
+
+    <script src="mqtt.min.js"></script>
+    <script src="moment.min.js"></script>
     <script>
-    var options = {
-        username: 'megni',
-        password: 'megni',
-        port: 8083,
-        ejectUnauthorized: false
-    }
-    var client = mqtt.connect("wss://mqtt.emoncms.org", options)
-    client.subscribe("user/megni/response")
+        (function(){
+            // ----------------------------------------------------------------
+            // INIT
+            var CLIENT = null // stores reference to the connected mqtt client
+            var INTERVAL = null // stores reference to the looping interval that calls for more data
+            var DELAY = 5000 // milliseconds between remote loads
+            var CLIENT_ID = 'mqttjs_' + Math.random().toString(16).substr(2, 8)
+            connectToBroker()
 
-    client.on("message", function (topic, payload) {
-        // console.log(JSON.parse(payload))
-        displayResults(JSON.parse(payload))
-        client.end()
-    })
+            // ----------------------------------------------------------------
+            // EVENTS LISTENERS
 
-    client.publish("user/megni/request", '{"path":"/emoncms/feed/list.json"}')
+            select('#login').addEventListener('submit', onSubmit)
+            select('#disconnect').addEventListener('click', onCancel)
 
-    var $status = document.getElementById("status")
-    var $template = document.getElementById("feed_row").innerHTML
-    var $table = document.querySelector('#feedlist tbody')
+            document.addEventListener('connect',      connectToBroker)
+            document.addEventListener('connected',    connectedToBroker)
+            document.addEventListener('received',     displayResults)
+            document.addEventListener('disconnect',   disconnectFromBroker)
+            document.addEventListener('disconnected', disconnectedFromBroker);
 
-    function displayResults(feeds) {
-        $status.innerText = 'found ' + feeds.length
-        $template.innerHTML
-        for (i in feeds) {
-/*​
-        datatype: "1"
-        engine: "5"
-        id: "21"
-        interval: 10
-        name: "solarmodel"
-        processList: ""
-        public: "1"
-        size: "15262352"
-        start_time: 1456790240
-        tag: "node abc"
-        time: 1539163669
-        unit: "kWh"
-        userid: "1"
-        value: 23
-*/
-            $row = document.createElement('div')
-            $row.innerHTML = $template
-            //$row.querySelector('[data-title]').innerText = feeds[i].name
-            console.log($row)
-            $table.append($row)
-        }
-    }
+            // ----------------------------------------------------------------
+            // MQTT EVENT FUNCITONS
+            /**
+             * called when the document 'connect' event is fired
+             * connect to mqtt broker using username and password.
+             * subscribes to user/{username}/response/client_id
+             */
+            function connectToBroker() {
+                var user = getUser()
+                if (!user) return void 0
+                select('#status').innerText = 'connecting...'
+                // fake loader!! soz
+                fakeLoader()
+
+                // CUSTOM EVENTS
+                var connected = new CustomEvent('connected')
+                var disconnected = new CustomEvent('disconnected')
+
+                var options = {
+                    username: user.username,
+                    password: user.password,
+                    port: 8083,
+                    ejectUnauthorized: false,
+                    clientId: CLIENT_ID,
+                    will: {
+                        topic: 'user/' + getUser().username + '/request',
+                        payload: 'DISCONNECTED CLIENT ' + CLIENT_ID + '--------',
+                        qos: 0,
+                        retain: false
+                    },
+                    connectTimeout: 4000,
+                    reconnectPeriod: 2000
+                }
+                console.log('options', options)
+                var client = mqtt.connect("wss://mqtt.emoncms.org", options)
+                client.subscribe('user/' + options.username + '/response/' + CLIENT_ID)
+                // trigger custom event when connect event triggered
+                client.on('connect', function (connack) {
+                    if (connack.returnCode === 0) {
+                        document.dispatchEvent(connected)
+                    } else {
+                        document.dispatchEvent(disconnected)
+                    }
+                })
+                // trigger custom event when message event triggered
+                client.on('message', function (topic, payload) {
+                    //​ EXAMPLE PAYLOAD ARRAY ITEM: {datatype:"1",engine:"5",id:"21",interval:10,name:"solarmodel",processList:"",public:"1",size:"15262352",start_time:1456790240,tag:"node abc",time:1539163669,unit:"kWh",userid:"1",value:23}
+                    var received = new CustomEvent('received', {detail: {topic: topic, payload: payload}})
+                    document.dispatchEvent(received)
+                })
+                // all the client callbacks:
+                client.on('error', function () { console.log('Error'); disconnectFromBroker() })
+                client.on('end', function () { console.log('disconnecting callback finished') })
+                client.on('close', function () { console.log('disconnected'); })
+                client.on('offline', function () { console.log('lost connection!') })
+                client.on('reconnect', function () { console.log('connection regained'); console.count() })
+                client.on('packetsend', function (packet) { console.log('packet sent:', packet.cmd) })
+                client.on('packetreceive', function (packet) { console.log('packet received:', packet.cmd) })
+                // MQTT PACKET TYPES: Connect,Connack,Subscribe,Suback,Unsubscribe,Unsuback,Publish,Puback,Pubrec,Pubrel,Pubcomp,Pingreq,Pingresp
+
+                // indicate connection status
+                select('#connect').disabled = true
+                select('#disconnect').disabled = false
+                fakeLoader()
+
+                // set global variable to allow connect & disconnect buttons to access the client
+                CLIENT = client
+            }
+            /** trigger broker end() and wait for response before updating the screen */
+            function disconnectFromBroker(err) {
+                if (!CLIENT) return void 0
+                var dontWaitForAcknowledgement = !CLIENT.connected || true
+                CLIENT.end(dontWaitForAcknowledgement, function(){
+                    // wait before broker acknowlegement before triggering disconnected
+                    document.dispatchEvent(new Event('disconnected'))
+                })
+                console.log(CLIENT_ID + ' disconnected')
+            }
+            /** called once server is connected */
+            function connectedToBroker() {
+                select('#loader').value = 100
+                // request data from local mqtt broker
+                sendApiCommandToBroker()
+                // request more data from local mqtt broker every DELAY milliseconds
+                INTERVAL = setInterval(function() {
+                    sendApiCommandToBroker()
+                }, DELAY)
+            }
+            /** called once disconnection is confirmed */
+             function disconnectedFromBroker() {
+                select('#loader').value = 0
+                select('#disconnect').disabled = true
+                select('#connect').disabled = false
+                clearInterval(INTERVAL)
+                select('#status').innerText = 'disconnected'
+            }
+
+            // ----------------------------------------------------------------
+            // MQTT FUNCTIONS
+
+            /** Called once connected and at set intervals */
+            function sendApiCommandToBroker() {
+                var topic = 'user/' + getUser().username + '/request'
+                var message = JSON.stringify({clientId: CLIENT_ID, path: '/emoncms/feed/list.json'})
+                CLIENT.publish(topic, message)
+                select('#status').innerText = 'loading...'
+                select('#loader').value = 0
+            }
+
+            // ----------------------------------------------------------------
+            // FORM EVENTS
+
+            /** called when connect button pressed */
+            function onSubmit(event) {
+                event.preventDefault()
+                connectToBroker()
+            }
+            /** called when disconnect button pressed */
+            function onCancel(event) {
+                event.preventDefault()
+                disconnectFromBroker()
+            }
+
+
+            // ----------------------------------------------------------------
+            // FUNCTIONS
+            /**
+             * return undefined if one or both inputs ar empty
+             * @return {object} user obj with username & password properties
+             */
+             function getUser() {
+                var username = select('#input_username').value
+                var password = select('#input_password').value
+                var user = {
+                    username : username,
+                    password : password
+                }
+                if (username.length > 0 && password.length > 0) return user
+            }
+            /**
+             * format json response as list on screen
+             * @param {CustomEvent} event event.detail.payload == json data as text
+             */
+            function displayResults(event) {
+                var feeds = JSON.parse(event.detail.payload)
+                if (!feeds) throw 'No feed data'
+                
+                var table = select('#feedlist')
+                var tbody = table.querySelector('tbody')
+                while (tbody.firstChild) {
+                    tbody.removeChild(tbody.firstChild);
+                }
+                columns = 'id,name,tag,time,value'.split(',')
+                for (i in feeds) {
+                    var feed = feeds[i]
+                    var row = select("#feed_row").content.cloneNode(true);
+                    for (j in columns) {
+                        let column = columns[j]
+                        if (column === 'time') {
+                            feed[column] = moment.unix(feed[column]).fromNow()
+                        }
+                        row.querySelector('[data-' + column + ']').innerText = feed[column];
+                    }
+                    tbody.appendChild(row)
+                }
+                table.classList.remove('is-invisible')
+                select('#status').innerText = 'found ' + feeds.length
+                select('#loader').value = 100
+            }
+            function fakeLoader(){
+                var loader = select('#loader')
+                loader.classList.remove('is-invisible')
+                loader.value = Math.floor(Math.random() * 20) + 0
+                setTimeout(function() {
+                    loader.value = Math.floor(Math.random() * 70) + 30
+                }, 500)
+            }
+
+            // ----------------------------------------------------------------
+            // UTILITIES
+            /**
+             * select element from DOM for manipulation
+             * notify but not halt when element is not found
+             * @return {htmlElement} returns empty element if nothing found
+             */
+            function select(query, container) {
+                container = container || document
+                var elem = container.querySelector(query)
+                try {
+                    if (!elem) throw ReferenceError(query + ' not found in DOM')
+                } catch (e) {
+                    console.log('"' + query + '" not found in DOM')
+                }
+                
+                return elem || document.createElement('div')
+            }
+
+        })();
+
     </script>
 </body>
 </html>
